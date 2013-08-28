@@ -9,7 +9,7 @@ var shots = {};
 app.listen(port);
 
 io.configure(function() {
-    io.set("transports", ["websocket"]);
+    io.set("transports", ["websocket","xhr-polling","jsonp-polling"]);
 });
 
 function handler (req, res) {
