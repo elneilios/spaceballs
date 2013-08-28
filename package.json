@@ -1,11 +1,11 @@
 {
+    "name": "Space_Balls",
     "description": "A socket.io multiplayer game experiment",
+    "version": "0.0.0-1",
+    "author": "Neil Alderson <neil.alderson@two10degrees.com>",
     "dependencies": {
         "socket.io": "0.9.x"
     },
-    "name": "Space Balls",
-    "author": "Neil Alderson <neil.alderson@two10degrees.com>",
-    "version": "0.0.0-1",
     "engines": {
         "node": "0.8.x"
     }
