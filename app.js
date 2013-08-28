@@ -2,10 +2,11 @@ var app = require('http').createServer(handler)
   , io = require('socket.io').listen(app)
   , fs = require('fs')
 
+var port = process.env.port || 8080;
 var balls = {};
 var shots = {};
 
-app.listen(8080);
+app.listen(port);
 
 io.configure(function() {
     io.set("transports", ["websocket"]);
