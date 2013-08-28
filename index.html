@@ -1,0 +1,412 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>Ahhh Balls!</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script> 
+    <style>
+        #content {
+            margin: 0 auto;
+            width: 960px;
+            text-align: center;
+        }
+        #theCanvas {
+            border: 5px solid black;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="content">
+        <h1>Ahhh balls!</h1>
+        <h3>Use arrow keys to control your ball. Space to fire and Enter to respawn</h3>
+        <canvas id="theCanvas" width="500" height="500">Uh oh, your browser doesn't support HTML5.</canvas>
+    </div>
+    
+    <script type="text/javascript">
+
+        function spawnBall(){
+            return {
+                x: centreX,
+                y: centreY,
+                a: 0,
+                v: 0,
+                r: Math.floor((Math.random()*15)+5),
+                fill: getRandomColor(),
+            };
+        }
+
+        function drawBall(ball) {
+            if(ball){
+                context.beginPath();
+                context.arc(ball.x, ball.y, ball.r, 0, 2 * Math.PI);
+                context.lineWidth = 2;
+                context.strokeStyle = 'black';
+                context.fillStyle = ball.fill;
+                context.stroke();
+                context.fill();
+                context.closePath();
+
+                context.beginPath();
+                context.moveTo(ball.x, ball.y);
+                var lx = ball.x + ball.r * Math.cos(ball.a);
+                var ly = ball.y + ball.r * Math.sin(ball.a);
+                context.lineTo(lx, ly);
+                context.stroke();
+                context.closePath();
+            }
+        }
+
+        function drawShot(shot){
+            if(shot){
+                context.beginPath();
+                context.lineWidth = 5;
+                context.strokeStyle = shot.colour;
+                context.moveTo(shot.x1, shot.y1);
+                context.lineTo(shot.x2, shot.y2);
+                context.stroke();
+                context.closePath();
+            }
+        }
+
+        function drawTrace() {
+            var traceMsg = myBall ? "X:" + Math.round(myBall.x) + " Y: " + Math.round(myBall.y) : "Respawn!";
+
+            context.beginPath();
+            context.fillStyle = myBall ? myBall.fill : 'red';
+            context.font = '14px serif';
+            context.fillText(traceMsg, 10, 14);
+            context.closePath();
+        }
+
+        function draw() {
+
+            // Clear the canvas
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw my ball
+            drawBall(myBall);
+            $.each(enemyBalls, function(k, v){
+                if(k != socketId)
+                    drawBall(v);
+            });
+
+            // Draw my shots
+            $.each(myShots, function(k, v){
+                if(k != socketId)
+                    drawShot(v);
+            });
+
+            // Draw enemy shots
+            $.each(enemyShots, function(k, shots){
+                if(k != socketId){
+                    $.each(shots, function(k, shot){
+                        drawShot(shot);
+                    });
+                }
+            });
+
+            // Draw trace output
+            drawTrace();
+        }
+
+        function update() {
+
+            if (keysPressed.enter)
+                    myBall = spawnBall();                          
+
+            if(myBall) {
+
+                var oldX = myBall.x;
+                var oldY = myBall.y;
+                var oldA = myBall.a;
+
+                if (keysPressed.up)
+                    myBall.v += constants.acceleration;
+                if (keysPressed.down)
+                    myBall.v -= constants.acceleration;
+                if (keysPressed.left)
+                    myBall.a -= constants.turnRate;
+                if (keysPressed.right)
+                    myBall.a += constants.turnRate;
+                if (keysPressed.space && frameCount > 15) {
+                    // Create a shot
+                    var newShot = {};
+                    newShot.x1 = myBall.x;
+                    newShot.y1 = myBall.y;
+                    newShot.x2 = myBall.x + constants.shotLength * Math.cos(myBall.a);
+                    newShot.y2 = myBall.y + constants.shotLength * Math.sin(myBall.a);
+                    newShot.a = myBall.a;
+                    newShot.colour = myBall.fill;
+
+                    myShots.push(newShot);
+
+                    frameCount = 0;
+                    
+                }
+
+                // Rudimentary wall collision detection
+                if (((myBall.x - myBall.r) <= 0) || ((myBall.x + myBall.r) >= canvas.width)) {
+                    myBall.a = Math.PI - myBall.a;
+                }
+
+                if(((myBall.y - myBall.r) <= 0) || ((myBall.y + myBall.r) >= canvas.height)){
+                    myBall.a = -myBall.a;
+                }
+
+                // Test for collision with other players
+                /*$.each(enemyBalls, function(k, ball){
+                    if(k != socketId && ball){
+                        if(intersects(myBall, ball)){
+                            if(myBall.r < ball.r)
+                                myBall = undefined;
+                            else
+                                myBall.r += ball.r;
+                        }
+                    }
+                });*/                
+
+                // Hack to ensure we don't infinitely reduce myBall.v
+                if(Math.abs(myBall.v) > 0.1)
+                    myBall.v -= constants.friction * myBall.v;
+                else
+                    myBall.v = 0;
+
+                var dx = myBall.v * Math.cos(myBall.a);
+                var dy = myBall.v * Math.sin(myBall.a);
+                myBall.x += dx;
+                myBall.y += dy;                
+
+                $.each(myShots, function(k, myShot){
+                    if(myShot){
+                        if(myShot.x2 < 0 || myShot.x2 > canvas.width || myShot.y2 < 0 || myShot.y2 > canvas.height){
+                            myShots.splice(k, 1);
+                        }
+                        else{
+                            var dx = constants.shotSpeed * Math.cos(myShot.a);
+                            var dy = constants.shotSpeed * Math.sin(myShot.a);
+                            myShot.x1 += dx;
+                            myShot.x2 += dx;
+                            myShot.y1 += dy;
+                            myShot.y2 += dy;                  
+                        }
+                    }              
+                });
+                socket.emit('updateshots', myShots);
+
+                if(oldX != myBall.x || oldY != myBall.y || oldA != myBall.a){
+                    // Only send new position if it has changed
+                    socket.emit('updateball', myBall);
+                }
+
+                // Check for shots hitting
+                $.each(enemyShots, function(k, shots){
+                    if(k != socketId && shots){
+                        $.each(shots, function(k, shot){
+                            if(shotHit(shot, myBall)){
+                                console.log('Shot hit!');
+                                myBall.r -= constants.shotCost * myBall.r;
+                                if(myBall.r < 5){
+                                    myBall = undefined;
+                                }
+                                socket.emit('updateball', myBall);
+                            }
+                        });
+                    }                    
+                });
+            }            
+        }
+        function shotHit(shot, ball){
+            var a = shot.x2 - shot.x1;
+            var b = shot.y2 - shot.y1;
+            var c = ball.x - shot.x1;
+            var d = ball.y - shot.y1;
+            var r = ball.r;
+
+            var startInside = false;
+            var endInside = false;
+            var middleInside = false;
+
+            if ((d*a - c*b)*(d*a - c*b) <= r*r*(a*a + b*b)) {
+                // Collision is possible
+                if (c*c + d*d <= r*r) {
+                  // Line segment start point is inside the circle
+                  return true;
+                }
+                if ((a-c)*(a-c) + (b-d)*(b-d) <= r*r) {
+                  // Line segment end point is inside the circle
+                  return true;
+                }
+                if (!startInside && !endInside && c*a + d*b >= 0 && c*a + d*b <= a*a + b*b) {
+                  // Middle section only
+                  return true;
+                }
+            }
+            return false;
+        }
+
+        function intersects(ball1, ball2){
+            var distance = Math.sqrt( (ball1.y - ball2.y)^2 + (ball1.x - ball2.x)^2 );
+            console.log('Distance: ' + distance);
+            return distance < (ball1.r + ball2.r) || Math.abs(ball1.r - ball2.r) > distance; 
+        }
+
+        function dot(x1,y1,x2,y2){
+            return (x1 * x2) + (y1 * y2);
+        }
+
+        function animate() {
+            frameCount++;
+            requestAnimFrame(animate);
+            update();
+            draw();
+        }
+
+        function getRandomColor() {
+            var letters = '0123456789ABCDEF'.split('');
+            var color = '#';
+            for (var i = 0; i < 6; i++ ) {
+                color += letters[Math.round(Math.random() * 15)];
+            }
+            return color;
+        }
+
+        window.requestAnimFrame = (function () {
+            return window.requestAnimationFrame ||
+                    window.webkitRequestAnimationFrame ||
+                    window.mozRequestAnimationFrame ||
+                    function (callback) {
+                        window.setTimeout(callback, 1000 / 60);
+                    };
+        })();
+
+    </script>
+
+    <script type="text/javascript">
+
+        var socket = io.connect();
+        var socketId;
+
+        var canvas = document.getElementById('theCanvas');
+        var context = canvas.getContext('2d');
+
+        var centreX = canvas.width / 2;
+        var centreY = canvas.height / 2;
+
+        var keysPressed = {
+            space: false,
+            up: false,
+            down: false,
+            left: false,
+            right: false
+        };
+
+        var constants = {
+            turnRate: 0.1,
+            acceleration: 2,
+            friction: 0.05,
+            shotSpeed: 10,
+            shotLength: 15,
+            shotCost: 0.1
+        };
+
+        var myBall = spawnBall();
+        var myShots = [];
+        var enemyBalls = {};
+        var enemyShots = {};
+        var frameCount = 0;
+
+        // Kick off the animation and game loop
+        animate();
+
+        socket.on('connected', function(id){
+            socketId = id;
+            socket.emit('updateball', myBall);
+        });
+
+        socket.on('onupdateballs', function(balls){
+            enemyBalls = balls;
+        });
+
+        socket.on('onupdateshots', function(shots){
+            enemyShots = shots;
+        });
+
+        $(document).ready(function () {
+            
+            $(document.body).keydown(function (e) {
+                switch (e.keyCode) {
+                    // ENTER
+                    case 13:
+                        keysPressed.enter = true;
+                        break;
+
+                    // SPACEBAR
+                    case 32:
+                        keysPressed.space = true;
+                        break;
+
+                    // LEFT ARROW
+                    case 37:
+                        keysPressed.left = true;
+                        break;
+
+                        // RIGHT ARROW
+                    case 39:
+                        keysPressed.right = true;
+                        break;
+
+                        // UP ARROW
+                    case 38:
+                        keysPressed.up = true;
+                        break;
+
+                        // DOWN ARROW
+                    case 40:
+                        keysPressed.down = true;
+                        break;
+                }
+            });
+
+            $(document.body).keyup(function (e) {
+                switch (e.keyCode) {
+                    // ENTER
+                    case 13:
+                        keysPressed.enter = false;
+                        break;
+
+                    // SPACEBAR
+                    case 32:
+                        keysPressed.space = false;
+                        break;
+
+                    // LEFT ARROW
+                    case 37:
+                        keysPressed.left = false;
+                        break;
+
+                        // RIGHT ARROW
+                    case 39:
+                        keysPressed.right = false;
+                        break;
+
+                        // UP ARROW
+                    case 38:
+                        keysPressed.up = false;
+                        break;
+
+                        // DOWN ARROW
+                    case 40:
+                        keysPressed.down = false;
+                        break;
+                }
+            });
+
+        });
+
+    </script>
+
+</body>
+</html>
